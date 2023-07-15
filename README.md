@@ -120,7 +120,7 @@ func TestMyThing(t *testing.T) {
 ## Full Example
 This is taken from our own test in `lib_test.go`:
 
-```
+```go
 func TestFullScenario(t *testing.T) {
 	var (
 		testCtx      = context.Background()
