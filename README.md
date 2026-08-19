@@ -1,172 +1,153 @@
 # Ensure
-A scenario-based test runner for Go
+
+A scenario-based test runner for Go.
+
+Every step runs as its own `t.Run` subtest, so `go test -v` prints the scenario as a tree and a
+failure names the step that failed rather than the whole test.
 
 ## Installation
+
 ```bash
-go get github.com/iamkoch/ensure
+go get github.com/iamkoch/ensure/v2
 ```
 
 ## Basic scenario
-
-```go
-package myapp 
-
-import (
-    "testing"
-    "github.com/iamkoch/ensure"
-)
-
-func TestExample(t *testing.T) {
-    var aThing bool
-
-    ensure.That("Testing a thing", func(s *ensure.Scenario) {
-        s.Given("a thing is false", func() {
-            aThing = false
-        })
-		
-        s.When("I set a thing to true", func() {
-            aThing = true
-        })
-		
-        s.Then("the thing should be true", func() {
-            if !aThing {
-                t.Error("aThing should be true")
-            }
-        })
-    }, t)
-}
-
-```
-
-## Background, And, Teardown
-This library also supports Background, And, and Teardown steps:
 
 ```go
 package myapp
 
 import (
 	"testing"
-	"context"
-	"github.com/iamkoch/ensure"
+
+	"github.com/iamkoch/ensure/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExample(t *testing.T) {
-    var aThing bool
+	ensure.That("a thing can be set to true", func(s *ensure.Scenario) {
+		var aThing bool
 
-    ensure.That("Testing a thing", func(s *ensure.Scenario) {
-        s.Background("Prepare the scenario", func() {
-            // Do something here
-        })
-        
-        s.Given("a thing is false", func() {
-            aThing = false
-        })
-		
-        s.And("another thing happens", func() {
-            // Do another thing here
-        })
-		
-        s.When("I set a thing to true", func() {
-            aThing = true
-        })
-        
-        s.Then("the thing should be true", func() {
-            if !aThing {
-                t.Error("aThing should be true")
-            }
-        }).Teardown("revert a thing", context.Background(), func(ctx context.Context) {
-            aThing = false
-        })
-    }, t)
+		s.Given("a thing is false", func(t *testing.T) {
+			aThing = false
+		})
+
+		s.When("I set a thing to true", func(t *testing.T) {
+			aThing = true
+		})
+
+		s.Then("the thing should be true", func(t *testing.T) {
+			require.True(t, aThing)
+		})
+	}, t)
 }
-
 ```
 
-## Printing 
-Scenario text is, by default, printed to stdout using `fmt.Println`. This can be overridden by setting the `Printer` variable to a custom implementation of the `Printer` interface.
+Each step function takes the subtest's own `*testing.T`. Assert against that one, not against the
+`*testing.T` of the enclosing test function, or the failure is attributed to the wrong step.
 
-This can be overridden by setting the `Printer` variable to a custom implementation of the `Printer` interface.
+Declare the variables the steps share inside the scenario function, as above. Declaring them in the
+enclosing test function works too, but scoping them to the scenario stops two scenarios in one test
+sharing state by accident.
+
+## Output
+
+```
+--- PASS: TestFullScenario (0.00s)
+    --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Given_a_thing_is_false (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/And_another_thing_is_true (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/When_I_do_the_old_swaperoo (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Then_the_a_thing_should_be_true (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/And_anotherThing_should_be_false (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Teardown_of_revert_anotherThing (0.00s)
+        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Teardown_of_tearDown (0.00s)
+```
+
+Because steps are subtests, `go test -run` selects them individually and any tool that reads Go test
+output reports each step in its own right.
+
+## Steps
+
+| Step | Use it for |
+|---|---|
+| `Background` | Setup that is not part of the behaviour being described: starting a container, seeding a database. |
+| `Given` | The state the scenario starts from. |
+| `When` | The action under test. |
+| `Then` | The assertion. |
+| `And` | A continuation of the step before it. Valid after any other step. |
+| `Teardown` | Cleanup. Chain it onto the step that created the thing being cleaned up. |
+
+## Background, And, Teardown
 
 ```go
 package myapp
 
-type testPrinter struct {
-	entries []string
-}
+import (
+	"context"
+	"testing"
 
-func (t *testPrinter) Write(s string) {
-	t.entries = append(t.entries, s)
-}
+	"github.com/iamkoch/ensure/v2"
+	"github.com/stretchr/testify/require"
+)
 
-func (t *testPrinter) Output() string {
-	var output string
-	for _, entry := range t.entries {
-		output += entry + "\n"
-	}
-	return output
-}
+func TestExample(t *testing.T) {
+	ctx := context.Background()
 
-func init() {
-	ensure.Printer = &testPrinter{}
-}
+	ensure.That("a thing can be set to true", func(s *ensure.Scenario) {
+		var aThing bool
 
-func TestMyThing(t *testing.T) {
-	...
-}
-```
+		s.Background("prepare the scenario", func(t *testing.T) {
+			// start a container, open a connection
+		})
 
-
-
-## Full Example
-This is taken from our own test in `lib_test.go`:
-
-```go
-func TestFullScenario(t *testing.T) {
-	var (
-		testCtx      = context.Background()
-		aThing       bool
-		anotherThing bool
-		tornDown     = false
-	)
-
-	That("A full scenario runs as expected", func(s *Scenario) {
-		s.Given("a thing is false", func() {
+		s.Given("a thing is false", func(t *testing.T) {
 			aThing = false
 		})
 
-		s.And("another thing is true", func() {
-			anotherThing = true
-		}).Teardown("revert anotherThing", testCtx, func(ctx context.Context) {
-			anotherThing = false
+		s.And("another thing happens", func(t *testing.T) {
+			// ...
 		})
 
-		s.When("I do the old swaperoo", func() {
+		s.When("I set a thing to true", func(t *testing.T) {
 			aThing = true
-			anotherThing = false
 		})
 
-		s.Then("the a thing should be true", func() {
-			require.Equal(t, true, aThing)
-		})
-
-		s.And("anotherThing should be false", func() {
-			require.Equal(t, false, anotherThing)
-		}).Teardown("tearDown", testCtx, func(ctx context.Context) {
-			tornDown = true
+		s.Then("the thing should be true", func(t *testing.T) {
+			require.True(t, aThing)
+		}).Teardown("revert a thing", ctx, func(ctx context.Context) {
+			aThing = false
 		})
 	}, t)
-
-	require.True(t, tornDown)
-
-	require.Equal(t, `Scenario: A full scenario runs as expected
- Given a thing is false
-  And another thing is true
- When I do the old swaperoo
- Then the a thing should be true
-  And anotherThing should be false
-Tearing down revert anotherThing
-Tearing down tearDown
-`, Printer.(*testPrinter).Output(), "output should be as expected")
 }
-
 ```
+
+`Teardown` takes a context and passes it to the teardown function untouched. Cancelling it is the
+caller's business; the scenario does not cancel it.
+
+Teardown functions run after the scenario's last step, whether the scenario passed or failed, and in
+the order they were registered.
+
+## Unwritten scenarios
+
+`NotImplemented` fails the scenario immediately, so a scenario you have named but not yet written
+does not sit in the suite silently passing.
+
+```go
+ensure.That("a expired licence is rejected", func(s *ensure.Scenario) {
+	s.NotImplemented()
+}, t)
+```
+
+## Step failures do not stop the scenario
+
+A failing step does not skip the steps after it, in the same way that one failing `t.Run` does not
+stop the next. A scenario whose `Given` fails still runs its `When` and `Then`, which can produce
+several failures with one cause. Read the first failing step.
+
+## Full example
+
+See [`lib_test.go`](lib_test.go). It is the library's own test and it exercises every step type.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
