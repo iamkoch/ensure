@@ -4,10 +4,22 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
+
+// equalStrings fails the test unless got holds the same strings as want, in the
+// same order. The tests here compare the order steps and teardowns ran in, so
+// the message prints both slices.
+func equalStrings(t *testing.T, got, want []string, msg string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s\ngot:  %v\nwant: %v", msg, got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("%s\ngot:  %v\nwant: %v", msg, got, want)
+		}
+	}
+}
 
 func TestFullScenario(t *testing.T) {
 	var (
@@ -34,17 +46,23 @@ func TestFullScenario(t *testing.T) {
 		})
 
 		s.Then("the a thing should be true", func(t *testing.T) {
-			assert.Equal(t, true, aThing)
+			if !aThing {
+				t.Error("aThing should be true after the swaperoo")
+			}
 		})
 
 		s.And("anotherThing should be false", func(t *testing.T) {
-			require.Equal(t, false, anotherThing)
+			if anotherThing {
+				t.Fatal("anotherThing should be false after the swaperoo")
+			}
 		}).Teardown("tearDown", testCtx, func(ctx context.Context) {
 			tornDown = true
 		})
 	}, t)
 
-	require.True(t, tornDown)
+	if !tornDown {
+		t.Error("the teardown chained onto the last step should have run")
+	}
 }
 
 // recordingT stands in for *testing.T so that a step can be reported as failed
@@ -87,12 +105,15 @@ func TestAFailedStepSkipsTheStepsAfterIt(t *testing.T) {
 	scenario.Then("the outcome is asserted", record("then"))
 	scenario.And("and so is this one", record("and"))
 
-	require.Equal(t, []string{"given", "when"}, executed,
+	equalStrings(t, executed, []string{"given", "when"},
 		"the steps after a failure must not run")
-	require.Equal(t, []string{"Then the outcome is asserted", "And and so is this one"},
-		recorder.skipped, "the steps after a failure must be reported as skipped")
-	require.Len(t, recorder.steps, 4,
-		"every step must still appear in the output, skipped rather than absent")
+	equalStrings(t, recorder.skipped,
+		[]string{"Then the outcome is asserted", "And and so is this one"},
+		"the steps after a failure must be reported as skipped")
+	if len(recorder.steps) != 4 {
+		t.Fatalf("every step must still appear in the output, skipped rather than absent: got %d steps, want 4",
+			len(recorder.steps))
+	}
 }
 
 func TestTeardownsRunInReverseOrderOfRegistration(t *testing.T) {
@@ -112,7 +133,7 @@ func TestTeardownsRunInReverseOrderOfRegistration(t *testing.T) {
 
 	scenario.runTeardowns(recorder)
 
-	require.Equal(t, []string{"client", "container"}, order,
+	equalStrings(t, order, []string{"client", "container"},
 		"a resource must be released before whatever it was created from")
 }
 
@@ -129,7 +150,9 @@ func TestTeardownsRunWhenAStepFailed(t *testing.T) {
 
 	scenario.runTeardowns(recorder)
 
-	require.True(t, tornDown, "cleanup must happen even when the scenario failed")
+	if !tornDown {
+		t.Error("cleanup must happen even when the scenario failed")
+	}
 }
 
 func TestTeardownIsNotRegisteredForASkippedStep(t *testing.T) {
@@ -150,6 +173,6 @@ func TestTeardownIsNotRegisteredForASkippedStep(t *testing.T) {
 
 	scenario.runTeardowns(recorder)
 
-	require.Equal(t, []string{"setup"}, order,
+	equalStrings(t, order, []string{"setup"},
 		"a skipped step has nothing to undo, so its teardown must not be registered")
 }

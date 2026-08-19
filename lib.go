@@ -17,7 +17,9 @@
 //			})
 //
 //			s.Then("the thing is true", func(t *testing.T) {
-//				require.True(t, thing)
+//				if !thing {
+//					t.Error("the thing should be true")
+//				}
 //			})
 //		}, t)
 //	}
@@ -36,8 +38,11 @@
 //
 // Steps are sequential and each one assumes the state the one before it left
 // behind, so a failing step skips the steps after it. Assertions that are
-// independent of each other belong in one step, using assert rather than
-// require, so that all of them report.
+// independent of each other belong in one step, reported with t.Error rather
+// than t.Fatal, so that all of them report.
+//
+// The library has no dependencies. Each step function takes the subtest's own
+// *testing.T, so any assertion library works with it.
 package ensure
 
 import (

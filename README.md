@@ -11,6 +11,10 @@ failure names the step that failed rather than the whole test.
 go get github.com/iamkoch/ensure/v2
 ```
 
+Requires Go 1.19 or later. The library has no dependencies, and nothing in it needs a recent Go, so
+adding it to a project never forces a toolchain upgrade. Each step function takes the subtest's own
+`*testing.T`, so use the standard library, testify, or any other assertion library with it.
+
 ## Basic scenario
 
 ```go
@@ -20,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/iamkoch/ensure/v2"
-	"github.com/stretchr/testify/require"
 )
 
 func TestExample(t *testing.T) {
@@ -36,7 +39,9 @@ func TestExample(t *testing.T) {
 		})
 
 		s.Then("the thing should be true", func(t *testing.T) {
-			require.True(t, aThing)
+			if !aThing {
+				t.Error("aThing should be true")
+			}
 		})
 	}, t)
 }
@@ -88,7 +93,6 @@ import (
 	"testing"
 
 	"github.com/iamkoch/ensure/v2"
-	"github.com/stretchr/testify/require"
 )
 
 func TestExample(t *testing.T) {
@@ -114,7 +118,9 @@ func TestExample(t *testing.T) {
 		})
 
 		s.Then("the thing should be true", func(t *testing.T) {
-			require.True(t, aThing)
+			if !aThing {
+				t.Error("aThing should be true")
+			}
 		}).Teardown("revert a thing", ctx, func(ctx context.Context) {
 			aThing = false
 		})
@@ -170,13 +176,17 @@ Assertions that do not depend on each other belong in one step, so that all of t
 
 ```go
 s.Then("the response is the one we expect", func(t *testing.T) {
-	assert.Equal(t, 200, resp.StatusCode)
-	assert.JSONEq(t, wantBody, string(body))
+	if resp.StatusCode != 200 {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+	if string(body) != wantBody {
+		t.Errorf("body: got %s, want %s", body, wantBody)
+	}
 })
 ```
 
-Use `assert` there rather than `require`, because `require` calls `t.FailNow` and stops the step at
-the first failure.
+Report those with `t.Error` rather than `t.Fatal`, because `t.Fatal` stops the step at the first
+failure. With testify, that is `assert` rather than `require`, for the same reason.
 
 ## Full example
 
