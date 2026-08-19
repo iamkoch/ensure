@@ -21,6 +21,11 @@
 //			})
 //		}, t)
 //	}
+//
+// Steps are sequential and each one assumes the state the one before it left
+// behind, so a failing step skips the steps after it. Assertions that are
+// independent of each other belong in one step, using assert rather than
+// require, so that all of them report.
 package ensure
 
 import (
@@ -28,21 +33,24 @@ import (
 	"testing"
 )
 
+// scenarioT is the part of *testing.T that a Scenario uses. It exists so that
+// the skip-after-failure behaviour can be tested without a failing test.
+type scenarioT interface {
+	Run(name string, f func(t *testing.T)) bool
+	Fatal(args ...any)
+}
+
 // That runs one scenario. Steps run in the order they are declared, each as a
-// subtest of the scenario. Teardown functions run after the last step, in the
-// order they were registered.
+// subtest of the scenario.
 //
-// A step that fails does not stop the steps after it, in the same way that one
-// failing t.Run does not stop the next.
+// Once a step fails, every step after it is skipped. Teardown functions still
+// run, in reverse order of registration, so that a resource is released before
+// whatever it was created from.
 func That(scenarioName string, scenarioFunc func(s *Scenario), t *testing.T) {
 	t.Run("Scenario__"+scenarioName, func(t *testing.T) {
 		scenario := &Scenario{t: t}
 		scenarioFunc(scenario)
-		for _, teardown := range scenario.teardownMethods {
-			t.Run("Teardown of "+teardown.name, func(t *testing.T) {
-				teardown.f()
-			})
-		}
+		scenario.runTeardowns(t)
 	})
 }
 
@@ -51,48 +59,53 @@ func That(scenarioName string, scenarioFunc func(s *Scenario), t *testing.T) {
 // panics on first use.
 type Scenario struct {
 	teardownMethods []tearDown
-	t               *testing.T
+	t               scenarioT
+	failed          bool
+	lastStepRan     bool
 }
 
 // Given runs a step that establishes the state the scenario starts from.
 func (s *Scenario) Given(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	s.t.Run("Given "+stepName, func(t *testing.T) {
-		stepFunc(t)
-	})
-	return s
+	return s.step("Given ", stepName, stepFunc)
 }
 
 // And runs a step that continues from the step before it. Use it after any
 // other step.
 func (s *Scenario) And(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	s.t.Run("And "+stepName, func(t *testing.T) {
-		stepFunc(t)
-	})
-	return s
+	return s.step("And ", stepName, stepFunc)
 }
 
 // When runs the step that performs the action under test.
 func (s *Scenario) When(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	s.t.Run("When "+stepName, func(t *testing.T) {
-		stepFunc(t)
-	})
-	return s
+	return s.step("When ", stepName, stepFunc)
 }
 
 // Background runs a setup step that is not part of the behaviour being
 // described, such as starting a container or seeding a database.
 func (s *Scenario) Background(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	s.t.Run("Background of "+stepName, func(t *testing.T) {
-		stepFunc(t)
-	})
-	return s
+	return s.step("Background of ", stepName, stepFunc)
 }
 
 // Then runs a step that asserts the outcome.
 func (s *Scenario) Then(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	s.t.Run("Then "+stepName, func(t *testing.T) {
-		stepFunc(t)
-	})
+	return s.step("Then ", stepName, stepFunc)
+}
+
+func (s *Scenario) step(prefix, stepName string, stepFunc func(t *testing.T)) *Scenario {
+	name := prefix + stepName
+
+	if s.failed {
+		s.lastStepRan = false
+		s.t.Run(name, func(t *testing.T) {
+			t.Skip("skipped: an earlier step in this scenario failed")
+		})
+		return s
+	}
+
+	s.lastStepRan = true
+	if !s.t.Run(name, stepFunc) {
+		s.failed = true
+	}
 	return s
 }
 
@@ -102,9 +115,14 @@ func (s *Scenario) Then(stepName string, stepFunc func(t *testing.T)) *Scenario 
 // ctx is passed through to teardownFunc untouched. Cancelling it is the
 // caller's business; the scenario does not cancel it.
 //
-// Teardown functions run whether the scenario passed or failed, and in the
-// order they were registered.
+// Teardown functions run in reverse order of registration, so a resource is
+// released before whatever it was created from. A teardown chained onto a step
+// that ran, whether that step passed or failed, will run. A teardown chained
+// onto a step that was skipped will not, because there is nothing to undo.
 func (s *Scenario) Teardown(stepName string, ctx context.Context, teardownFunc func(ctx context.Context)) *Scenario {
+	if !s.lastStepRan {
+		return s
+	}
 	s.addTearDown(stepName, func() {
 		teardownFunc(ctx)
 	})
@@ -116,6 +134,15 @@ func (s *Scenario) addTearDown(name string, f func()) {
 		name: name,
 		f:    f,
 	})
+}
+
+func (s *Scenario) runTeardowns(t scenarioT) {
+	for i := len(s.teardownMethods) - 1; i >= 0; i-- {
+		teardown := s.teardownMethods[i]
+		t.Run("Teardown of "+teardown.name, func(t *testing.T) {
+			teardown.f()
+		})
+	}
 }
 
 // NotImplemented fails the scenario immediately. Use it to name a scenario you

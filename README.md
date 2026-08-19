@@ -125,7 +125,10 @@ func TestExample(t *testing.T) {
 caller's business; the scenario does not cancel it.
 
 Teardown functions run after the scenario's last step, whether the scenario passed or failed, and in
-the order they were registered.
+**reverse order of registration**, so a resource is released before whatever it was created from. In
+the example above the client is closed before the container is stopped.
+
+A teardown chained onto a step that was skipped does not run, because there is nothing to undo.
 
 ## Unwritten scenarios
 
@@ -138,11 +141,36 @@ ensure.That("a expired licence is rejected", func(s *ensure.Scenario) {
 }, t)
 ```
 
-## Step failures do not stop the scenario
+## A failing step skips the steps after it
 
-A failing step does not skip the steps after it, in the same way that one failing `t.Run` does not
-stop the next. A scenario whose `Given` fails still runs its `When` and `Then`, which can produce
-several failures with one cause. Read the first failing step.
+Steps are sequential, and each one assumes the state the step before it left behind, so once a step
+fails the rest of the scenario is skipped rather than run against state that is already wrong. This
+is how Gherkin, Cucumber, and SpecFlow behave.
+
+The skipped steps still appear in the output, marked `SKIP`, so the scenario reads as a whole and one
+cause produces one failure:
+
+```
+--- FAIL: TestExample/Scenario__a_real_failure_behaves_itself
+    --- PASS: .../Background_of_the_container_starts
+    --- PASS: .../Given_a_client_connects
+    --- FAIL: .../When_the_action_fails
+    --- SKIP: .../Then_this_must_not_run
+    --- PASS: .../Teardown_of_close_the_client
+    --- PASS: .../Teardown_of_stop_the_container
+```
+
+Assertions that do not depend on each other belong in one step, so that all of them report:
+
+```go
+s.Then("the response is the one we expect", func(t *testing.T) {
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.JSONEq(t, wantBody, string(body))
+})
+```
+
+Use `assert` there rather than `require`, because `require` calls `t.FailNow` and stops the step at
+the first failure.
 
 ## Full example
 
