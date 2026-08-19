@@ -51,17 +51,18 @@ sharing state by accident.
 
 ## Output
 
+The scenario is the subtest of the test function, and each step is a subtest of the scenario:
+
 ```
---- PASS: TestFullScenario (0.00s)
-    --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Given_a_thing_is_false (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/And_another_thing_is_true (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/When_I_do_the_old_swaperoo (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Then_the_a_thing_should_be_true (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/And_anotherThing_should_be_false (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Teardown_of_revert_anotherThing (0.00s)
-        --- PASS: TestFullScenario/Scenario__A_full_scenario_runs_as_expected/Teardown_of_tearDown (0.00s)
+--- PASS: TestExample (0.00s)
+    --- PASS: TestExample/a_thing_can_be_set_to_true (0.00s)
+        --- PASS: TestExample/a_thing_can_be_set_to_true/Given_a_thing_is_false (0.00s)
+        --- PASS: TestExample/a_thing_can_be_set_to_true/When_I_set_a_thing_to_true (0.00s)
+        --- PASS: TestExample/a_thing_can_be_set_to_true/Then_the_thing_should_be_true (0.00s)
 ```
+
+Go replaces the spaces in a subtest name with underscores, so keep scenario and step names short.
+The step keyword is the only text the library adds.
 
 Because steps are subtests, `go test -run` selects them individually and any tool that reads Go test
 output reports each step in its own right.
@@ -125,8 +126,9 @@ func TestExample(t *testing.T) {
 caller's business; the scenario does not cancel it.
 
 Teardown functions run after the scenario's last step, whether the scenario passed or failed, and in
-**reverse order of registration**, so a resource is released before whatever it was created from. In
-the example above the client is closed before the container is stopped.
+**reverse order of registration**, so a resource is released before whatever it was created from. A
+teardown chained onto `Given("a client connects")` therefore runs before one chained onto
+`Background("the container starts")`, closing the client before stopping the container.
 
 A teardown chained onto a step that was skipped does not run, because there is nothing to undo.
 
@@ -151,14 +153,18 @@ The skipped steps still appear in the output, marked `SKIP`, so the scenario rea
 cause produces one failure:
 
 ```
---- FAIL: TestExample/Scenario__a_real_failure_behaves_itself
-    --- PASS: .../Background_of_the_container_starts
-    --- PASS: .../Given_a_client_connects
-    --- FAIL: .../When_the_action_fails
-    --- SKIP: .../Then_this_must_not_run
-    --- PASS: .../Teardown_of_close_the_client
-    --- PASS: .../Teardown_of_stop_the_container
+--- FAIL: TestExample (0.00s)
+    --- FAIL: TestExample/a_real_failure_behaves_itself (0.00s)
+        --- PASS: TestExample/a_real_failure_behaves_itself/Background_the_container_starts (0.00s)
+        --- PASS: TestExample/a_real_failure_behaves_itself/Given_a_client_connects (0.00s)
+        --- FAIL: TestExample/a_real_failure_behaves_itself/When_the_action_fails (0.00s)
+        --- SKIP: TestExample/a_real_failure_behaves_itself/Then_this_must_not_run (0.00s)
+        --- SKIP: TestExample/a_real_failure_behaves_itself/And_nor_this_one (0.00s)
+        --- PASS: TestExample/a_real_failure_behaves_itself/Teardown_close_the_client (0.00s)
+        --- PASS: TestExample/a_real_failure_behaves_itself/Teardown_stop_the_container (0.00s)
 ```
+
+A skipped step carries no message of its own. The failure above it is the reason.
 
 Assertions that do not depend on each other belong in one step, so that all of them report:
 

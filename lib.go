@@ -22,6 +22,18 @@
 //		}, t)
 //	}
 //
+// The scenario is a subtest of the test function and each step is a subtest of
+// the scenario:
+//
+//	--- PASS: TestSomething (0.00s)
+//	    --- PASS: TestSomething/a_thing_can_be_set (0.00s)
+//	        --- PASS: TestSomething/a_thing_can_be_set/Given_the_thing_is_false (0.00s)
+//	        --- PASS: TestSomething/a_thing_can_be_set/When_the_thing_is_set (0.00s)
+//	        --- PASS: TestSomething/a_thing_can_be_set/Then_the_thing_is_true (0.00s)
+//
+// Go replaces the spaces in a subtest name with underscores, so keep scenario
+// and step names short. The step keyword is the only text the library adds.
+//
 // Steps are sequential and each one assumes the state the one before it left
 // behind, so a failing step skips the steps after it. Assertions that are
 // independent of each other belong in one step, using assert rather than
@@ -47,7 +59,7 @@ type scenarioT interface {
 // run, in reverse order of registration, so that a resource is released before
 // whatever it was created from.
 func That(scenarioName string, scenarioFunc func(s *Scenario), t *testing.T) {
-	t.Run("Scenario__"+scenarioName, func(t *testing.T) {
+	t.Run(scenarioName, func(t *testing.T) {
 		scenario := &Scenario{t: t}
 		scenarioFunc(scenario)
 		scenario.runTeardowns(t)
@@ -83,7 +95,7 @@ func (s *Scenario) When(stepName string, stepFunc func(t *testing.T)) *Scenario 
 // Background runs a setup step that is not part of the behaviour being
 // described, such as starting a container or seeding a database.
 func (s *Scenario) Background(stepName string, stepFunc func(t *testing.T)) *Scenario {
-	return s.step("Background of ", stepName, stepFunc)
+	return s.step("Background ", stepName, stepFunc)
 }
 
 // Then runs a step that asserts the outcome.
@@ -97,7 +109,7 @@ func (s *Scenario) step(prefix, stepName string, stepFunc func(t *testing.T)) *S
 	if s.failed {
 		s.lastStepRan = false
 		s.t.Run(name, func(t *testing.T) {
-			t.Skip("skipped: an earlier step in this scenario failed")
+			t.SkipNow()
 		})
 		return s
 	}
@@ -139,7 +151,7 @@ func (s *Scenario) addTearDown(name string, f func()) {
 func (s *Scenario) runTeardowns(t scenarioT) {
 	for i := len(s.teardownMethods) - 1; i >= 0; i-- {
 		teardown := s.teardownMethods[i]
-		t.Run("Teardown of "+teardown.name, func(t *testing.T) {
+		t.Run("Teardown "+teardown.name, func(t *testing.T) {
 			teardown.f()
 		})
 	}
